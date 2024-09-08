@@ -1,0 +1,158 @@
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.animation import FuncAnimation
+from mpl_toolkits.mplot3d import Axes3D
+
+# Constantes físicas
+hbar = 1.0  # Constante de Planck normalizada
+m = 1.0     # Massa da partícula (normalizada)
+L = 1.0     # Comprimento da caixa (normalizada)
+N = 1000    # Número de pontos no espaço
+dx = L / N  # Passo no espaço
+dt = 0.001  # Passo no tempo
+x = np.linspace(0, L, N)  # Discretização do espaço
+
+# Operador Laplaciano (diferenças finitas)
+def laplacian(psi, dx):
+    return (np.roll(psi, -1) - 2 * psi + np.roll(psi, 1)) / dx**2
+
+# Função de onda inicial - superposição de estados n
+def initial_wave_function(x, L, n_states):
+    psi = np.zeros_like(x)
+    for n in n_states:
+        psi += np.sqrt(2/L) * np.sin(n * np.pi * x / L)
+    return psi
+
+# Função para evoluir a função de onda no tempo - Método de Crank-Nicolson
+def crank_nicolson(psi_real, psi_imag, V, dx, dt):
+    laplacian_real = laplacian(psi_real, dx)
+    laplacian_imag = laplacian(psi_imag, dx)
+    
+    psi_real_new = psi_real - dt * (-0.5 * laplacian_imag + V * psi_imag)
+    psi_imag_new = psi_imag + dt * (-0.5 * laplacian_real + V * psi_real)
+    
+    return psi_real_new, psi_imag_new
+
+# Função para evoluir a função de onda no tempo - Método de Euler explícito
+def euler_explicit(psi_real, psi_imag, V, dx, dt):
+    laplacian_real = laplacian(psi_real, dx)
+    laplacian_imag = laplacian(psi_imag, dx)
+    
+    psi_real_new = psi_real - dt * (-0.5 * laplacian_imag + V * psi_imag)
+    psi_imag_new = psi_imag + dt * (-0.5 * laplacian_real + V * psi_real)
+    
+    return psi_real_new, psi_imag_new
+
+# Função para calcular a energia esperada
+def expected_energy(psi_real, psi_imag, V, dx):
+    laplacian_real = laplacian(psi_real, dx)
+    laplacian_imag = laplacian(psi_imag, dx)
+    
+    kinetic_energy = -0.5 * (psi_real * laplacian_real + psi_imag * laplacian_imag)
+    potential_energy = V * (psi_real**2 + psi_imag**2)
+    
+    total_energy = kinetic_energy + potential_energy
+    return np.sum(total_energy) * dx
+
+# Potencial da caixa infinita
+def infinite_potential(x, L):
+    V = np.zeros_like(x)
+    V[x <= 0] = np.inf
+    V[x >= L] = np.inf
+    return V
+
+# Potencial de poço quadrado finito
+def finite_square_potential(x, L, V0):
+    V = np.zeros_like(x)
+    V[x <= 0] = V0
+    V[x >= L] = V0
+    return V
+
+# Potencial de barreira de tunelamento
+def barrier_potential(x, L, V0, width):
+    V = np.zeros_like(x)
+    barrier_center = L / 2
+    V[np.abs(x - barrier_center) < width] = V0
+    return V
+
+# Potencial delta de Dirac
+def delta_potential(x, L, V0):
+    V = np.zeros_like(x)
+    V[np.abs(x - L/2) < dx] = V0 / dx  # Simulação do delta de Dirac
+    return V
+
+# Função para escolher o potencial
+def choose_potential(potential_type, x, L, V0=1.0, width=0.1):
+    if potential_type == 'infinite':
+        return infinite_potential(x, L)
+    elif potential_type == 'finite_square':
+        return finite_square_potential(x, L, V0)
+    elif potential_type == 'barrier':
+        return barrier_potential(x, L, V0, width)
+    elif potential_type == 'delta':
+        return delta_potential(x, L, V0)
+    else:
+        raise ValueError("Tipo de potencial não reconhecido!")
+
+# Função para iniciar a função de onda real e imaginária
+def initialize_wavefunction(n_states, x, L):
+    psi_real = initial_wave_function(x, L, n_states)
+    psi_imag = np.zeros_like(psi_real)
+    return psi_real, psi_imag
+
+# Função para plotar o potencial
+def plot_potential(ax, V, x, label):
+    ax.plot(x, V, color='r', label=label)
+    ax.set_xlabel('Posição')
+    ax.set_ylabel('Potencial')
+    ax.legend()
+
+# Visualização 3D da função de onda
+def plot_wavefunction_3d(psi_real, psi_imag, x, t_vals):
+    fig = plt.figure()
+    ax = fig.add_subplot(111, projection='3d')
+    X, T = np.meshgrid(x, t_vals)
+    Z = psi_real**2 + psi_imag**2
+    
+    ax.plot_surface(X, T, Z, cmap='viridis')
+    ax.set_xlabel('Posição')
+    ax.set_ylabel('Tempo')
+    ax.set_zlabel('Densidade de probabilidade')
+    plt.show()
+
+# Configurações de plotagem e animação
+def setup_animation(psi_real, psi_imag, V, x, L, potential_type, method='euler'):
+    fig, ax = plt.subplots()
+    line, = ax.plot(x, psi_real**2 + psi_imag**2, color='b', label="Densidade de probabilidade")
+    plot_potential(ax, V, x, label=potential_type)
+    ax.set_ylim(0, 2)
+    
+    # Função de atualização para animação
+    def update(frame):
+        global psi_real, psi_imag
+        if method == 'euler':
+            psi_real, psi_imag = euler_explicit(psi_real, psi_imag, V, dx, dt)
+        elif method == 'crank-nicolson':
+            psi_real, psi_imag = crank_nicolson(psi_real, psi_imag, V, dx, dt)
+        line.set_ydata(psi_real**2 + psi_imag**2)
+        return line,
+    
+    ani = FuncAnimation(fig, update, frames=range(500), blit=True, interval=50)
+    plt.show()
+
+# Escolha dos parâmetros do sistema
+potential_type = 'barrier'  # Escolha: 'infinite', 'finite_square', 'barrier', 'delta'
+n_states = [1, 2]  # Superposição de estados iniciais
+V0 = 5.0  # Altura do potencial de barreira ou poço quadrado finito
+width = 0.1  # Largura da barreira de potencial
+
+# Inicialização da função de onda e do potencial
+psi_real, psi_imag = initialize_wavefunction(n_states, x, L)
+V = choose_potential(potential_type, x, L, V0=V0, width=width)
+
+# Executa a animação com o potencial escolhido e o método numérico
+setup_animation(psi_real, psi_imag, V, x, L, potential_type, method='crank-nicolson')
+
+# Visualização 3D da evolução da função de onda
+t_vals = np.linspace(0, 1, 500)
+plot_wavefunction_3d(psi_real, psi_imag, x, t_vals)
