@@ -1,0 +1,112 @@
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.animation import FuncAnimation
+from scipy.fftpack import fft, ifft, fftfreq
+
+# Constantes físicas
+hbar = 1.0  # Constante de Planck normalizada
+m = 1.0     # Massa da partícula (normalizada)
+L = 1.0     # Comprimento da caixa (normalizada)
+N = 1024    # Número de pontos no espaço (deve ser uma potência de 2 para FFT)
+dx = L / N  # Passo no espaço
+dt = 0.001  # Passo no tempo
+x = np.linspace(0, L, N)  # Discretização do espaço
+
+# Discretização no domínio de Fourier
+k = fftfreq(N, d=dx) * 2 * np.pi  # Frequências de Fourier (espectro)
+k2 = k**2
+
+# Método de Fourier Espectral para o Laplaciano
+def spectral_laplacian(psi):
+    psi_k = fft(psi)  # Transforma psi para o domínio de Fourier
+    laplacian_psi = ifft(-k2 * psi_k)  # Aplica -k² no espaço de Fourier e retorna para o espaço real
+    return laplacian_psi
+
+# Método Runge-Kutta de 4ª ordem (RK4) para evolução temporal
+def runge_kutta_step(psi_real, psi_imag, V, dx, dt):
+    def f(psi_r, psi_i, V):
+        laplacian_real = spectral_laplacian(psi_r)
+        laplacian_imag = spectral_laplacian(psi_i)
+        dpsi_r_dt = -0.5 * laplacian_imag + V * psi_i
+        dpsi_i_dt =  0.5 * laplacian_real - V * psi_r
+        return dpsi_r_dt, dpsi_i_dt
+
+    k1_real, k1_imag = f(psi_real, psi_imag, V)
+    k2_real, k2_imag = f(psi_real + 0.5*dt*k1_real, psi_imag + 0.5*dt*k1_imag, V)
+    k3_real, k3_imag = f(psi_real + 0.5*dt*k2_real, psi_imag + 0.5*dt*k2_imag, V)
+    k4_real, k4_imag = f(psi_real + dt*k3_real, psi_imag + dt*k3_imag, V)
+
+    psi_real_new = psi_real + (dt / 6) * (k1_real + 2*k2_real + 2*k3_real + k4_real)
+    psi_imag_new = psi_imag + (dt / 6) * (k1_imag + 2*k2_imag + 2*k3_imag + k4_imag)
+
+    return psi_real_new, psi_imag_new
+
+# Função de onda inicial - estado n da partícula na caixa
+def initial_wave_function(x, L, n):
+    return np.sqrt(2/L) * np.sin(n * np.pi * x / L)
+
+# Potenciais adicionais
+def coulomb_potential(x, L, q1=1.0, q2=-1.0):
+    # Simulação de um potencial Coulombiano no meio da caixa
+    x0 = L / 2
+    return q1 * q2 / np.abs(x - x0 + 1e-5)  # Evita singularidade em x = x0
+
+def morse_potential(x, L, D=10, a=1, r0=0.5):
+    # Potencial de Morse para interações moléculas
+    return D * ((1 - np.exp(-a * (x - r0)))**2 - 1)
+
+# Função para escolher o potencial
+def choose_potential(potential_type, x, L, V0=1.0, a=1.0, D=10.0):
+    if potential_type == 'coulomb':
+        return coulomb_potential(x, L)
+    elif potential_type == 'morse':
+        return morse_potential(x, L, D=D, a=a)
+    elif potential_type == 'infinite':
+        V = np.zeros_like(x)
+        V[x <= 0] = np.inf
+        V[x >= L] = np.inf
+        return V
+    else:
+        raise ValueError("Tipo de potencial não reconhecido!")
+
+# Função para iniciar a função de onda real e imaginária
+def initialize_wavefunction(n, x, L):
+    psi_real = initial_wave_function(x, L, n)
+    psi_imag = np.zeros_like(psi_real)
+    return psi_real, psi_imag
+
+# Função para plotar o potencial
+def plot_potential(ax, V, x, label):
+    ax.plot(x, V, color='r', label=label)
+    ax.set_xlabel('Posição')
+    ax.set_ylabel('Potencial')
+    ax.legend()
+
+# Visualização da função de onda e do potencial
+def setup_animation(psi_real, psi_imag, V, x, L, potential_type):
+    fig, ax = plt.subplots()
+    line, = ax.plot(x, psi_real**2 + psi_imag**2, color='b', label="Densidade de probabilidade")
+    plot_potential(ax, V, x, label=potential_type)
+    ax.set_ylim(0, 2)
+    
+    # Função de atualização para animação
+    def update(frame):
+        global psi_real, psi_imag
+        psi_real, psi_imag = runge_kutta_step(psi_real, psi_imag, V, dx, dt)
+        line.set_ydata(psi_real**2 + psi_imag**2)
+        return line,
+    
+    ani = FuncAnimation(fig, update, frames=range(500), blit=True, interval=50)
+    plt.show()
+
+# Escolha dos parâmetros do sistema
+potential_type = 'morse'  # Escolha: 'infinite', 'coulomb', 'morse'
+n_state = 1  # Estado inicial da função de onda (n = 1, 2, 3, ...)
+D_morse = 10.0  # Parâmetro D do potencial de Morse
+
+# Inicialização da função de onda e do potencial
+psi_real, psi_imag = initialize_wavefunction(n_state, x, L)
+V = choose_potential(potential_type, x, L, D=D_morse)
+
+# Executa a animação com o potencial escolhido
+setup_animation(psi_real, psi_imag, V, x, L, potential_type)
